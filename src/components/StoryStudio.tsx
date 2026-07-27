@@ -11,6 +11,16 @@ const LANGUAGES: Language[] = ["en", "ja", "zh", "th"];
 const LANGUAGE_NAME: Record<Language, string> = { en: "영어", ja: "일본어", zh: "중국어", th: "태국어" };
 const LANGUAGE_FLAG: Record<Language, string> = { en: "🇺🇸", ja: "🇯🇵", zh: "🇨🇳", th: "🇹🇭" };
 const MODE_NAME: Record<ContentMode, string> = { inspired_buddha: "부처님 말씀 느낌", inspired_jesus: "예수님 말씀 느낌", general: "일반 위로글" };
+const BUSY_MESSAGE: Record<string, string> = {
+  topics: "AI가 새 주제를 추천하고 있어요",
+  story: "이야기를 만들고 있어요",
+  revise: "AI 수정안을 만들고 있어요",
+  transcribe: "녹음을 글로 옮기고 있어요",
+  proofread: "원문과 녹음을 비교하고 있어요",
+  localize: "해외용 번역을 만들고 있어요",
+  chat: "AI가 답변을 만들고 있어요",
+};
+const BUSY_ETA: Record<string, number> = { topics: 20, story: 55, revise: 35, transcribe: 35, proofread: 20, localize: 120, chat: 25 };
 
 function emptyTranslation(language: Language): Translation {
   return { language, text: "", status: "idle", qaStatus: "idle", title: "", hashtags: [] };
@@ -40,6 +50,7 @@ export default function StoryStudio() {
   const [dragging, setDragging] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [hydrated, setHydrated] = useState(false);
+  const [remainingSeconds, setRemainingSeconds] = useState(0);
   const importRef = useRef<HTMLInputElement>(null);
 
   const project = useMemo(() => projects.find((p) => p.id === activeId) ?? projects[0], [projects, activeId]);
@@ -51,7 +62,17 @@ export default function StoryStudio() {
   }, []);
 
   useEffect(() => { if (hydrated) saveProjects(projects); }, [projects, hydrated]);
-  useEffect(() => { if (hydrated && topics.length === 0) void refreshTopics(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [hydrated]);
+  useEffect(() => {
+    if (hydrated && project?.stage === "story" && topics.length === 0) void refreshTopics("", project.contentMode);
+    // A new/selected project should immediately get recommendations for its current style.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hydrated, activeId]);
+  useEffect(() => {
+    if (!busy) { setRemainingSeconds(0); return; }
+    setRemainingSeconds(BUSY_ETA[busy] ?? 30);
+    const timer = window.setInterval(() => setRemainingSeconds((value) => Math.max(0, value - 1)), 1000);
+    return () => window.clearInterval(timer);
+  }, [busy]);
 
   function updateProject(patch: Partial<Project> | ((current: Project) => Partial<Project>)) {
     if (!project) return;
@@ -62,14 +83,25 @@ export default function StoryStudio() {
     }));
   }
 
-  async function refreshTopics() {
+  async function refreshTopics(request = "", modeOverride?: ContentMode) {
     try {
       setBusy("topics"); setError("");
       const recentTitles = projects.slice(0, 20).map((p) => p.title).filter((t) => t !== "새 작업");
-      const data = await apiPost<{ topics: string[] }>("/api/ai/topics", { recentTitles });
+      const data = await apiPost<{ topics: string[] }>("/api/ai/topics", {
+        recentTitles,
+        avoidTopics: topics,
+        contentMode: modeOverride ?? project?.contentMode ?? "inspired_buddha",
+        request,
+      });
       setTopics(data.topics);
     } catch (e) { setError((e as ApiError).message); }
     finally { setBusy(null); }
+  }
+
+  function selectContentMode(mode: ContentMode) {
+    if (!project) return;
+    updateProject({ contentMode: mode, topic: "", sourceText: "" });
+    void refreshTopics("", mode);
   }
 
   async function createStory() {
@@ -192,7 +224,7 @@ export default function StoryStudio() {
   }
 
   function createNew() {
-    const next = newProject(project?.contentMode); setProjects((all) => [next, ...all]); setActiveId(next.id); setCurrentLanguage(undefined); setProposal(null); setError("");
+    const next = newProject(project?.contentMode); setTopics([]); setProjects((all) => [next, ...all]); setActiveId(next.id); setCurrentLanguage(undefined); setProposal(null); setError("");
   }
 
   function downloadBackup() {
@@ -220,6 +252,7 @@ export default function StoryStudio() {
 
   return (
     <main className="app-shell">
+      <GlobalToast busy={busy} remainingSeconds={remainingSeconds} error={error} onClose={() => setError("")} />
       <aside className="sidebar">
         <div><div className="brand">AI Story Studio</div><button className="primary full" onClick={createNew}>＋ 새 작업</button></div>
         <nav className="steps" aria-label="작업 단계">
@@ -235,8 +268,7 @@ export default function StoryStudio() {
       </aside>
 
       <section className="workspace">
-        {error && <div className="error-banner" role="alert">{error}<button onClick={() => setError("")} aria-label="오류 닫기">×</button></div>}
-        {project.stage === "story" && <StoryStep project={project} topics={topics} busy={busy} copied={copied} onRefreshTopics={refreshTopics} onPatch={updateProject} onCreate={createStory} onRevise={reviseSource} onCopy={copyText} onFinish={finishStory} />}
+        {project.stage === "story" && <StoryStep project={project} topics={topics} busy={busy} copied={copied} onRefreshTopics={refreshTopics} onSelectMode={selectContentMode} onPatch={updateProject} onCreate={createStory} onRevise={reviseSource} onCopy={copyText} onFinish={finishStory} />}
         {project.stage === "proofread" && <ProofreadStep project={project} file={file} dragging={dragging} busy={busy} onFile={chooseFile} onDrag={setDragging} onPatch={updateProject} onTranscribe={transcribe} onProofread={proofread} onNext={startLocalization} />}
         {(project.stage === "localize" || project.stage === "completed") && <LocalizeStep project={project} busy={busy} copied={copied} currentLanguage={currentLanguage} completed={completedTranslations} onSelect={setCurrentLanguage} onRetry={localizeLanguage} onCopy={copyText} onCopyAll={() => copyText("all", allText)} />}
       </section>
@@ -254,15 +286,38 @@ export default function StoryStudio() {
   );
 }
 
+function GlobalToast({ busy, remainingSeconds, error, onClose }: { busy: string | null; remainingSeconds: number; error: string; onClose: () => void }) {
+  if (!busy && !error) return null;
+  if (error) return <div className="global-toast error" role="alert"><span>{error}</span><button onClick={onClose} aria-label="메시지 닫기">×</button></div>;
+  const message = BUSY_MESSAGE[busy || ""] || "처리하고 있어요";
+  return <div className="global-toast busy" role="status" aria-live="polite"><span className="toast-dot" aria-hidden="true" /><div><strong>{message}</strong><small>{remainingSeconds > 0 ? `예상 ${remainingSeconds}초 남음` : "거의 다 됐어요…"}</small></div></div>;
+}
+
 function Step({ active, done, label }: { active: boolean; done: boolean; label: string }) { return <div className={`step ${active ? "active" : ""} ${done ? "done" : ""}`}><span>{label}</span>{done && <small>✓</small>}</div>; }
 
-function StoryStep({ project, topics, busy, copied, onRefreshTopics, onPatch, onCreate, onRevise, onCopy, onFinish }: {
-  project: Project; topics: string[]; busy: string | null; copied: string; onRefreshTopics: () => Promise<void>; onPatch: (p: Partial<Project>) => void; onCreate: () => Promise<void>; onRevise: (i?: string) => Promise<void>; onCopy: (k: string, t: string) => Promise<void>; onFinish: () => void;
+function StoryStep({ project, topics, busy, copied, onRefreshTopics, onSelectMode, onPatch, onCreate, onRevise, onCopy, onFinish }: {
+  project: Project; topics: string[]; busy: string | null; copied: string; onRefreshTopics: (request?: string, modeOverride?: ContentMode) => Promise<void>; onSelectMode: (mode: ContentMode) => void; onPatch: (p: Partial<Project>) => void; onCreate: () => Promise<void>; onRevise: (i?: string) => Promise<void>; onCopy: (k: string, t: string) => Promise<void>; onFinish: () => void;
 }) {
-  return <div className="stage-wrap"><header><span className="eyebrow">STEP 1</span><h1>오늘은 어떤 이야기를 만들어볼까요?</h1><p>주제를 고르고 스타일과 분량만 정하면 됩니다.</p></header>
-    <section className="section"><div className="section-title"><h2>주제 선택</h2><button className="text-button" onClick={() => void onRefreshTopics()} disabled={busy === "topics"}>{busy === "topics" ? "추천 중…" : "새 추천 받기"}</button></div><div className="topic-grid">{topics.map((t) => <button key={t} className={`topic ${project.topic === t ? "picked" : ""}`} onClick={() => onPatch({ topic: t })}>{t}</button>)}</div><label className="field"><span>직접 입력</span><input value={project.topic} onChange={(e) => onPatch({ topic: e.target.value })} placeholder="원하는 주제를 직접 적어주세요" /></label></section>
-    <section className="section compact-grid"><label className="field"><span>스타일</span><select value={project.contentMode} onChange={(e) => onPatch({ contentMode: e.target.value as ContentMode })}><option value="inspired_buddha">부처님 말씀 느낌</option><option value="inspired_jesus">예수님 말씀 느낌</option><option value="general">일반 위로글</option></select></label><label className="field"><span>분량</span><select value={project.targetLength} onChange={(e) => onPatch({ targetLength: Number(e.target.value) })}><option value={800}>800자</option><option value={1000}>1000자</option><option value={1100}>1100자</option><option value={1500}>1500자</option></select></label></section>
-    {!project.sourceText ? <button className="primary hero-action" onClick={() => void onCreate()} disabled={busy === "story" || !project.topic.trim()}>{busy === "story" ? "이야기를 만들고 있어요…" : "이 이야기 만들기"}</button> : <section className="section editor-section"><div className="section-title"><h2>완성 원고</h2><span className="count">{countGraphemes(project.sourceText).toLocaleString("ko-KR")}자 · 목표 {project.targetLength.toLocaleString("ko-KR")}자</span></div><textarea className="story-editor" value={project.sourceText} onChange={(e) => onPatch({ sourceText: e.target.value })} /><div className="action-bar"><div className="row"><button className="secondary" onClick={() => void onCopy("ko", project.sourceText)}>{copied === "ko" ? "복사했어요 ✓" : "복사"}</button><button className="secondary" onClick={() => void onCreate()} disabled={busy === "story"}>다시 만들기</button><button className="secondary" onClick={() => void onRevise("다른 비유로 바꿔줘")} disabled={busy === "revise"}>{busy === "revise" ? "수정안 만드는 중…" : "다른 비유 제안"}</button></div><button className="primary" onClick={onFinish}>✓ 완성하고 다음</button></div></section>}
+  const [topicRequest, setTopicRequest] = useState("");
+  const askForTopics = async () => {
+    const request = topicRequest.trim();
+    if (!request || busy === "topics") return;
+    onPatch({ topic: "" });
+    await onRefreshTopics(request, project.contentMode);
+    setTopicRequest("");
+  };
+  const refresh = async () => {
+    onPatch({ topic: "" });
+    await onRefreshTopics("", project.contentMode);
+  };
+
+  return <div className="stage-wrap"><header><span className="eyebrow">STEP 1</span><h1>오늘은 어떤 이야기를 만들어볼까요?</h1><p>스타일을 누르면 AI가 새로운 주제를 10개씩 추천합니다.</p></header>
+    <section className="section"><div className="section-title"><h2>어떤 느낌으로 만들까요?</h2></div><div className="style-grid">{(["inspired_buddha", "inspired_jesus", "general"] as ContentMode[]).map((mode) => <button key={mode} className={`style-choice ${project.contentMode === mode ? "picked" : ""}`} onClick={() => onSelectMode(mode)} disabled={busy === "topics"}><strong>{mode === "inspired_buddha" ? "부처님 말씀" : mode === "inspired_jesus" ? "예수님 말씀" : "일반 위로"}</strong><small>{mode === "inspired_buddha" ? "내려놓음 · 마음 · 지혜" : mode === "inspired_jesus" ? "사랑 · 평안 · 희망" : "일상 · 회복 · 위로"}</small></button>)}</div></section>
+    <section className="section"><div className="section-title"><div><h2>AI 추천 주제</h2><span className="section-hint">{MODE_NAME[project.contentMode]} · 최대 10개</span></div><button className="text-button" onClick={() => void refresh()} disabled={busy === "topics"}>{busy === "topics" ? "추천 중…" : "새 추천 받기"}</button></div>{topics.length > 0 ? <div className="topic-grid">{topics.map((t) => <button key={t} className={`topic ${project.topic === t ? "picked" : ""}`} onClick={() => onPatch({ topic: t })}>{t}</button>)}</div> : <div className="topic-empty">AI가 첫 추천 주제를 준비하고 있어요…</div>}
+      <form className="topic-search" onSubmit={(event) => { event.preventDefault(); void askForTopics(); }}><label htmlFor="topic-ai-request">다른 주제를 AI에게 물어보기</label><div className="search-row"><input id="topic-ai-request" value={topicRequest} onChange={(e) => setTopicRequest(e.target.value)} placeholder="예: 가족에게 지친 사람을 위한 주제 추천해줘" /><button className="secondary" type="submit" disabled={busy === "topics" || !topicRequest.trim()}>AI에게 물어보기</button></div><small>입력한 문장을 그대로 주제로 쓰지 않고, 그 방향의 새 주제 10개를 추천해요.</small></form>
+    </section>
+    <section className="section length-section"><label className="field"><span>분량</span><select value={project.targetLength} onChange={(e) => onPatch({ targetLength: Number(e.target.value) })}><option value={800}>800자</option><option value={1000}>1000자</option><option value={1100}>1100자</option><option value={1500}>1500자</option></select></label></section>
+    {!project.sourceText ? <button className="primary hero-action" onClick={() => void onCreate()} disabled={busy === "story" || !project.topic.trim()}>{busy === "story" ? "이야기를 만들고 있어요…" : project.topic ? `“${project.topic}” 이야기 만들기` : "추천 주제를 하나 골라주세요"}</button> : <section className="section editor-section"><div className="section-title"><h2>완성 원고</h2><span className="count">{countGraphemes(project.sourceText).toLocaleString("ko-KR")}자 · 목표 {project.targetLength.toLocaleString("ko-KR")}자</span></div><textarea className="story-editor" value={project.sourceText} onChange={(e) => onPatch({ sourceText: e.target.value })} /><div className="action-bar"><div className="row"><button className="secondary" onClick={() => void onCopy("ko", project.sourceText)}>{copied === "ko" ? "복사했어요 ✓" : "복사"}</button><button className="secondary" onClick={() => void onCreate()} disabled={busy === "story"}>다시 만들기</button><button className="secondary" onClick={() => void onRevise("다른 비유로 바꿔줘")} disabled={busy === "revise"}>{busy === "revise" ? "수정안 만드는 중…" : "다른 비유 제안"}</button></div><button className="primary" onClick={onFinish}>✓ 완성하고 다음</button></div></section>}
   </div>;
 }
 

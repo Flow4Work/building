@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const TopicRecommendationsSchema = z.object({ topics: z.array(z.string().min(2)).min(1).max(6) });
+export const TopicRecommendationsSchema = z.object({ topics: z.array(z.string().min(2)).min(1).max(10) });
 export const StorySchema = z.object({ text: z.string().min(1) });
 export const TranslationSchema = z.object({ text: z.string().min(1) });
 export const DifferenceSchema = z.object({

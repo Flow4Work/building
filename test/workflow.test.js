@@ -6,7 +6,7 @@ const { countGraphemes } = require('../.test-dist/src/lib/graphemes.js');
 test('mock topic recommendation avoids recent exact titles when alternatives exist', () => {
   const recent = ['너무 애쓰지 않아도 된다', '지나간 인연을 붙잡지 말라'];
   const topics = mockTopics(recent);
-  assert.equal(topics.length, 6);
+  assert.equal(topics.length, 10);
   assert.equal(topics.includes(recent[0]), false);
   assert.equal(topics.includes(recent[1]), false);
 });

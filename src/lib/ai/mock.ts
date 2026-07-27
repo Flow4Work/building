@@ -4,12 +4,16 @@ import { countGraphemes } from "../graphemes";
 const topicPool = [
   "너무 애쓰지 않아도 된다", "지나간 인연을 붙잡지 말라", "오늘만큼은 자신을 용서하라", "늦었다고 생각하지 마라",
   "마음이 힘들 때 내려놓아야 할 것", "아무도 알아주지 않아도 괜찮다", "쉬어가는 것도 앞으로 가는 일이다", "혼자 버틴 시간을 다독이는 법",
-  "비교를 멈추면 보이는 것", "기다림이 길어질 때 마음을 지키는 법"
+  "비교를 멈추면 보이는 것", "기다림이 길어질 때 마음을 지키는 법",
+  "마음이 무너진 날에도 다시 시작할 수 있다", "모든 사람에게 좋은 사람이 되지 않아도 된다",
+  "놓아야 할 때를 아는 것도 용기다", "혼자인 밤에 자신에게 건네는 말",
+  "잘하지 못한 하루도 괜찮은 이유", "걱정을 잠시 내려놓는 연습",
+  "내 마음의 속도를 존중하는 법", "끝난 관계 뒤에 남은 마음을 돌보는 법"
 ];
 
 export function mockTopics(recent: string[]): string[] {
   const used = new Set(recent.map((x) => x.trim()));
-  return [...topicPool.filter((x) => !used.has(x)), ...topicPool].slice(0, 6);
+  return topicPool.filter((x) => !used.has(x)).slice(0, 10);
 }
 
 function seed(mode: ContentMode, topic: string): string {
