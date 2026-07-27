@@ -1,5 +1,5 @@
 import { groqText } from "./providers/groq";
-import { getZenModels, ZenProviderError, zenText } from "./providers/zen";
+import { getZenModels, zenText } from "./providers/zen";
 
 type Message = { role: "system" | "user" | "assistant"; content: string };
 
@@ -22,13 +22,12 @@ export async function textRequest(messages: Message[], options: { timeoutMs?: nu
         return await attempt((m, signal) => zenText(m, signal, model));
       } catch (error) {
         lastError = error;
-        if (error instanceof ZenProviderError && [401, 402, 403].includes(error.status)) throw error;
         if (attemptIndex + 1 < maxAttempts) await new Promise((resolve) => setTimeout(resolve, 350));
       }
     }
   }
 
-  if (options.allowFallback !== false && process.env.GROQ_TEXT_MODEL) {
+  if (options.allowFallback !== false && process.env.GROQ_API_KEY) {
     try { return await attempt(groqText); } catch (error) { lastError = error; }
   }
 
