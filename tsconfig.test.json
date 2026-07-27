@@ -1,0 +1,12 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "strict": true,
+    "outDir": ".test-dist",
+    "rootDir": ".",
+    "skipLibCheck": true
+  },
+  "include": ["src/lib/graphemes.ts", "src/lib/diff.ts", "src/lib/types.ts", "src/lib/storage.ts", "src/lib/ai/mock.ts"]
+}
