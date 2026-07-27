@@ -2,14 +2,18 @@ type Message = { role: "system" | "user" | "assistant"; content: string };
 
 export async function groqText(messages: Message[], signal?: AbortSignal): Promise<string> {
   const key = process.env.GROQ_API_KEY;
-  const model = process.env.GROQ_TEXT_MODEL;
-  if (!key || !model) throw new Error("missing_groq_text_config");
+  const model = process.env.GROQ_TEXT_MODEL || "llama-3.1-8b-instant";
+  if (!key) throw new Error("missing_groq_key");
   const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST", signal,
     headers: { "content-type": "application/json", authorization: `Bearer ${key}` },
-    body: JSON.stringify({ model, messages, temperature: 0.1 }),
+    body: JSON.stringify({ model, messages, temperature: 0.3 }),
   });
-  if (!response.ok) throw new Error(`groq_${response.status}`);
+  if (!response.ok) {
+    const detail = (await response.text()).slice(0, 500);
+    console.error("groq text error", { status: response.status, model, detail });
+    throw new Error(`groq_${response.status}`);
+  }
   const json = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
   const text = json.choices?.[0]?.message?.content?.trim();
   if (!text) throw new Error("empty_output");
